@@ -1,0 +1,18 @@
+# 每月触发2次，防止 GitHub 因60天无活动自动禁用定时工作流
+name: keepalive
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "43 7 4,22 * *" # 每月4号和22号 15:43 (UTC 7:43)
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Keepalive via API
+        uses: gautamkrishnar/keepalive-workflow@v2
+        with:
+          use_api: true
