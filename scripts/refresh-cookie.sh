@@ -11,8 +11,7 @@ if [ -z "$OLD_COOKIE" ]; then
     exit 1
 fi
 
-echo "=> 正在访问 B 站首页刷新 Cookie..."
-
+echo "=> 正在访问 B 站首页..."
 HEADERS=$(mktemp)
 HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
     -D "$HEADERS" \
@@ -23,71 +22,60 @@ HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
 
 echo "=> 响应状态码: $HTTP_CODE"
 
-if [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "302" ] && [ "$HTTP_CODE" != "301" ]; then
-    echo "ERROR: 访问 B 站首页失败，状态码 $HTTP_CODE" >&2
+if [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "302" ] && [ "$HTTP_CODE" != "301" ] && [ "$HTTP_CODE" != "000" ]; then
+    echo "ERROR: 访问失败" >&2
     rm "$HEADERS"
     exit 1
 fi
 
-# 提取所有 Set-Cookie 头
-SET_COOKIES=$(grep -i '^set-cookie:' "$HEADERS" | sed 's/^set-cookie: //i' | tr -d '\r' | tr -d '\n')
+# 提取 Set-Cookie 头并用 Python 解析合并
+python3 - "$OLD_COOKIE" "$HEADERS" << 'PYEOF'
+import sys
+from http.cookies import SimpleCookie
+
+old_cookie_str = sys.argv[1]
+headers_file = sys.argv[2]
+
+# 解析现有 cookie
+old = SimpleCookie()
+for item in old_cookie_str.split(';'):
+    item = item.strip()
+    if '=' in item:
+        try:
+            old.load(item)
+        except:
+            pass
+
+# 读取 Set-Cookie 头
+set_cookies = []
+with open(headers_file, 'r', encoding='utf-8', errors='ignore') as f:
+    for line in f:
+        if line.lower().startswith('set-cookie:'):
+            set_cookies.append(line.split(':', 1)[1].strip())
+
+updated = 0
+for sc in set_cookies:
+    try:
+        new = SimpleCookie()
+        new.load(sc)
+        for key, morsel in new.items():
+            val = morsel.value
+            if key.lower() in ('domain', 'path', 'expires', 'max-age', 'httponly', 'secure', 'samesite', 'partitioned', 'priority'):
+                continue
+            if old.get(key) and old[key].value != val:
+                print(f"  [更新] {key}")
+                updated += 1
+            elif not old.get(key):
+                print(f"  [新增] {key}")
+                updated += 1
+            old[key] = val
+    except:
+        pass
+
+# 重建 cookie 字符串
+new_cookie_str = '; '.join(f"{k}={m.value}" for k, m in old.items())
+print(f"=> 共更新 {updated} 个字段")
+print(new_cookie_str)
+PYEOF
+
 rm "$HEADERS"
-
-if [ -z "$SET_COOKIES" ]; then
-    echo "=> 未收到 Set-Cookie 头，Cookie 无需更新"
-    echo "$OLD_COOKIE"
-    exit 0
-fi
-
-echo "=> 收到 Set-Cookie 头，开始合并..."
-
-NEW_COOKIE="$OLD_COOKIE"
-UPDATED_COUNT=0
-
-# 逐个处理 Set-Cookie 中的 key=value
-echo "$SET_COOKIES" | tr ';' '\n' | grep '=' | while IFS='=' read -r key value; do
-    key=$(echo "$key" | tr -d ' ')
-    value=$(echo "$value" | tr -d ' ')
-    
-    # 跳过元属性
-    case "$key" in
-        Domain|domain|Path|path|Expires|expires|Max-Age|max-age|HttpOnly|Secure|SameSite|samesite|partitioned|Priority|priority)
-            continue
-            ;;
-    esac
-    
-    if [ -n "$key" ] && [ -n "$value" ]; then
-        echo "  -> 更新 $key"
-    fi
-done
-
-# 用实际方法做替换
-NEW_COOKIE="$OLD_COOKIE"
-while IFS= read -r sc_line; do
-    [ -z "$sc_line" ] && continue
-    first_part=$(echo "$sc_line" | cut -d';' -f1)
-    key=$(echo "$first_part" | cut -d'=' -f1 | tr -d ' ')
-    value=$(echo "$first_part" | cut -d'=' -f2-)
-    
-    [ -z "$key" ] && continue
-    [ -z "$value" ] && continue
-    
-    case "$key" in
-        Domain|domain|Path|path|Expires|expires|Max-Age|max-age|HttpOnly|Secure|SameSite|samesite|partitioned|Priority|priority)
-            continue
-            ;;
-    esac
-    
-    if echo "$NEW_COOKIE" | grep -qi "$key="; then
-        NEW_COOKIE=$(echo "$NEW_COOKIE" | sed -E "s/$key=[^;]*/$key=$value/I")
-        echo "  [更新] $key"
-        UPDATED_COUNT=$((UPDATED_COUNT + 1))
-    else
-        NEW_COOKIE="$NEW_COOKIE; $key=$value"
-        echo "  [新增] $key"
-        UPDATED_COUNT=$((UPDATED_COUNT + 1))
-    fi
-done <<< "$(echo "$SET_COOKIES" | tr '\n' ' ' | tr -d '\r')"
-
-echo "=> 共更新 $UPDATED_COUNT 个字段"
-echo "$NEW_COOKIE"
