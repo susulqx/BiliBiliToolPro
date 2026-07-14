@@ -62,5 +62,10 @@ jobs:
         env:
           # 使用刚刷新的 Cookie（如果更新了），否则用原值
           Ray_BiliBiliCookies__1: ${{ steps.refresh.outputs.current_cookie || secrets.COOKIESTR }}
-          Ray_Security__RandomSleepMaxMin: 10
+          Ray_Security__RandomSleepMaxMin: 0
+          Ray_DailyTaskConfig__SaveCoinsWhenLv6: true
+          Ray_DailyTaskConfig__SupportUpIds: " "
           Ray_Serilog__WriteTo__0__Args__restrictedToMinimumLevel: Information
+          # Telegram 推送
+          Ray_Serilog__WriteTo__3__Args__botToken: ${{ secrets.TG_BOT_TOKEN }}
+          Ray_Serilog__WriteTo__3__Args__chatId: "7791144119"
