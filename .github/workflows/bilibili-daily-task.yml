@@ -1,0 +1,66 @@
+# BiliBili 每日任务
+# 流程：刷新Cookie → 更新Secret → 执行每日任务
+# 每天通过访问B站首页续命Cookie，模拟自然登录行为
+
+name: bilibili-daily-task
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 16 * * *" # UTC 16:00 = 北京时间 00:00
+
+env:
+  DOTNET_VERSION: "8.0.x"
+
+jobs:
+  refresh-and-run:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Set timezone
+        run: sudo timedatectl set-timezone "Asia/Shanghai"
+
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      # ========== Step 1: 刷新 Cookie ==========
+      - name: Refresh Cookie
+        id: refresh
+        run: |
+          chmod +x ./scripts/refresh-cookie.sh
+          NEW_COOKIE=$(./scripts/refresh-cookie.sh "${{ secrets.COOKIESTR }}")
+
+          OLD_HASH=$(echo "${{ secrets.COOKIESTR }}" | md5sum | cut -d' ' -f1)
+          NEW_HASH=$(echo "$NEW_COOKIE" | md5sum | cut -d' ' -f1)
+
+          if [ "$OLD_HASH" != "$NEW_HASH" ]; then
+            echo "Cookie 有更新，同步到 Secrets..."
+            echo "$NEW_COOKIE" | gh secret set COOKIESTR --repo susulqx/BiliBiliToolPro
+            echo "updated=true" >> "$GITHUB_OUTPUT"
+            echo "refresh_msg=Cookie 已自动续命成功" >> "$GITHUB_OUTPUT"
+          else
+            echo "Cookie 无变化，无需更新"
+            echo "updated=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          # 输出新 Cookie 供下一步使用
+          echo "current_cookie=$NEW_COOKIE" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ secrets.PAT }}
+
+      # ========== Step 2: 安装 .NET ==========
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      # ========== Step 3: 执行每日任务 ==========
+      - name: Run Daily Tasks
+        run: |
+          cd ./src/Ray.BiliBiliTool.Console
+          dotnet run --runTasks=Daily
+        env:
+          # 使用刚刷新的 Cookie（如果更新了），否则用原值
+          Ray_BiliBiliCookies__1: ${{ steps.refresh.outputs.current_cookie || secrets.COOKIESTR }}
+          Ray_Security__RandomSleepMaxMin: 10
+          Ray_Serilog__WriteTo__0__Args__restrictedToMinimumLevel: Information
