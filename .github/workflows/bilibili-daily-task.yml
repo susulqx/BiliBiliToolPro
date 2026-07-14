@@ -28,23 +28,25 @@ jobs:
         id: refresh
         run: |
           chmod +x ./scripts/refresh-cookie.sh
+          # refresh-cookie.sh 只输出 Cookie 到 stdout，日志到 stderr
           NEW_COOKIE=$(./scripts/refresh-cookie.sh "${{ secrets.COOKIESTR }}")
 
+          echo "::group::Cookie 比较"
           OLD_HASH=$(echo "${{ secrets.COOKIESTR }}" | md5sum | cut -d' ' -f1)
           NEW_HASH=$(echo "$NEW_COOKIE" | md5sum | cut -d' ' -f1)
+          echo "::endgroup::"
 
           if [ "$OLD_HASH" != "$NEW_HASH" ]; then
             echo "Cookie 有更新，同步到 Secrets..."
             echo "$NEW_COOKIE" | gh secret set COOKIESTR --repo susulqx/BiliBiliToolPro
             echo "updated=true" >> "$GITHUB_OUTPUT"
-            echo "refresh_msg=Cookie 已自动续命成功" >> "$GITHUB_OUTPUT"
           else
             echo "Cookie 无变化，无需更新"
             echo "updated=false" >> "$GITHUB_OUTPUT"
           fi
 
-          # 输出新 Cookie 供下一步使用
-          echo "current_cookie=$NEW_COOKIE" >> "$GITHUB_OUTPUT"
+          # 保存 Cookie 到临时文件（避免 GITHUB_OUTPUT 多行问题）
+          echo "$NEW_COOKIE" > /tmp/refreshed_cookie
         env:
           GH_TOKEN: ${{ secrets.PAT }}
 
@@ -57,11 +59,11 @@ jobs:
       # ========== Step 3: 执行每日任务 ==========
       - name: Run Daily Tasks
         run: |
+          COOKIE=$(cat /tmp/refreshed_cookie)
+          export Ray_BiliBiliCookies__1="$COOKIE"
           cd ./src/Ray.BiliBiliTool.Console
           dotnet run --runTasks=Daily
         env:
-          # 使用刚刷新的 Cookie（如果更新了），否则用原值
-          Ray_BiliBiliCookies__1: ${{ steps.refresh.outputs.current_cookie || secrets.COOKIESTR }}
           Ray_Security__RandomSleepMaxMin: 0
           Ray_DailyTaskConfig__SaveCoinsWhenLv6: true
           Ray_DailyTaskConfig__SupportUpIds: " "
