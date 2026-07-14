@@ -62,7 +62,7 @@ jobs:
           COOKIE=$(cat /tmp/refreshed_cookie)
           export Ray_BiliBiliCookies__1="$COOKIE"
           cd ./src/Ray.BiliBiliTool.Console
-          dotnet run --runTasks=Daily
+          dotnet run --runTasks=Daily&Manga
         env:
           Ray_Security__RandomSleepMaxMin: 0
           Ray_DailyTaskConfig__SaveCoinsWhenLv6: true
