@@ -1,7 +1,7 @@
 #!/bin/bash
 # BiliBili Cookie 续命脚本
-# 访问 B 站首页，从响应 Set-Cookie 头中提取新字段，合并到现有 Cookie
-# 原理同 LoginDomainService.SetCookieAsync
+# stdout: 只输出最终 Cookie（单行）
+# stderr: 所有日志
 
 set -euo pipefail
 
@@ -11,7 +11,8 @@ if [ -z "$OLD_COOKIE" ]; then
     exit 1
 fi
 
-echo "=> 正在访问 B 站首页..."
+echo "=> 正在访问 B 站首页..." >&2
+
 HEADERS=$(mktemp)
 HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
     -D "$HEADERS" \
@@ -20,23 +21,25 @@ HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
     -H "Referer: https://www.bilibili.com" \
     "https://www.bilibili.com")
 
-echo "=> 响应状态码: $HTTP_CODE"
+echo "=> 响应状态码: $HTTP_CODE" >&2
 
 if [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "302" ] && [ "$HTTP_CODE" != "301" ] && [ "$HTTP_CODE" != "000" ]; then
     echo "ERROR: 访问失败" >&2
     rm "$HEADERS"
-    exit 1
+    # cookie 没变，返回原值
+    echo "$OLD_COOKIE"
+    exit 0
 fi
 
-# 提取 Set-Cookie 头并用 Python 解析合并
+# Python 解析: stderr=日志, stdout=最终cookie(单行)
 python3 - "$OLD_COOKIE" "$HEADERS" << 'PYEOF'
 import sys
 from http.cookies import SimpleCookie
 
 old_cookie_str = sys.argv[1]
 headers_file = sys.argv[2]
+log = sys.stderr
 
-# 解析现有 cookie
 old = SimpleCookie()
 for item in old_cookie_str.split(';'):
     item = item.strip()
@@ -46,13 +49,19 @@ for item in old_cookie_str.split(';'):
         except:
             pass
 
-# 读取 Set-Cookie 头
 set_cookies = []
 with open(headers_file, 'r', encoding='utf-8', errors='ignore') as f:
     for line in f:
         if line.lower().startswith('set-cookie:'):
             set_cookies.append(line.split(':', 1)[1].strip())
 
+if not set_cookies:
+    log.write("=> 未收到 Set-Cookie 头\n")
+    # 输出原 cookie
+    print('; '.join(f"{k}={m.value}" for k, m in old.items()))
+    sys.exit(0)
+
+log.write("=> 收到 Set-Cookie 头，开始合并...\n")
 updated = 0
 for sc in set_cookies:
     try:
@@ -63,19 +72,18 @@ for sc in set_cookies:
             if key.lower() in ('domain', 'path', 'expires', 'max-age', 'httponly', 'secure', 'samesite', 'partitioned', 'priority'):
                 continue
             if old.get(key) and old[key].value != val:
-                print(f"  [更新] {key}")
+                log.write(f"  [更新] {key}\n")
                 updated += 1
             elif not old.get(key):
-                print(f"  [新增] {key}")
+                log.write(f"  [新增] {key}\n")
                 updated += 1
             old[key] = val
-    except:
-        pass
+    except Exception as e:
+        log.write(f"  [跳过] 解析失败: {e}\n")
 
-# 重建 cookie 字符串
-new_cookie_str = '; '.join(f"{k}={m.value}" for k, m in old.items())
-print(f"=> 共更新 {updated} 个字段")
-print(new_cookie_str)
+log.write(f"=> 共更新 {updated} 个字段\n")
+# 仅输出 cookie 到 stdout
+print('; '.join(f"{k}={m.value}" for k, m in old.items()))
 PYEOF
 
 rm "$HEADERS"
