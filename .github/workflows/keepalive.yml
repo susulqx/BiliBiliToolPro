@@ -1,4 +1,4 @@
-# 每月触发2次，防止 GitHub 因60天无活动自动禁用定时工作流
+# 每月随机触发2次，防止 GitHub 因60天无活动自动禁用定时工作流
 name: keepalive
 
 on:
@@ -9,10 +9,12 @@ on:
 jobs:
   keepalive:
     runs-on: ubuntu-latest
-    permissions:
-      actions: write
     steps:
-      - name: Keepalive via API
-        uses: gautamkrishnar/keepalive-workflow@v2
-        with:
-          use_api: true
+      - name: Keepalive
+        run: |
+          echo "=> 发送 keepalive 信号..."
+          gh api repos/susulqx/BiliBiliToolPro/actions/workflows \
+            --jq '.total_count' > /dev/null
+          echo "=> 完成"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
