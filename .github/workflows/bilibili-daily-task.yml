@@ -11,14 +11,14 @@ on:
 
 env:
   DOTNET_VERSION: "8.0.x"
+  TZ: "Asia/Shanghai"
 
 jobs:
   refresh-and-run:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Set timezone
-        run: sudo timedatectl set-timezone "Asia/Shanghai"
+      
 
       - name: Checkout
         uses: actions/checkout@v3
