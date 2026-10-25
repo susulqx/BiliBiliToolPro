@@ -45,6 +45,19 @@ Forks may not have scheduled workflows enabled immediately; check your fork's **
 
 Upstream removed its `bilibili-daily-task.yml`; **this fork restores it** as [`.github/workflows/bilibili-daily-task.yml`](../.github/workflows/bilibili-daily-task.yml), running on a daily schedule plus manual dispatch. For Web deployments, configure task timing through the [Web cron settings](configuration.md#394-cron-settings); these are not GitHub Actions schedules.
 
+The workflow needs two repository secrets. Get both by scanning a QR code on your own machine (Python 3 only, no packages to install):
+
+```shell
+python scripts/get-refresh-token.py
+```
+
+The script prints a QR code, waits for the BiliBili app to confirm, then prints the two values:
+
+- `COOKIESTR` — the full cookie header (`SESSDATA`, `bili_jct`, `DedeUserID`, ...).
+- `REFRESH_TOKEN` — the persistent token the run uses to rotate the cookie.
+
+Paste them into **Settings → Secrets and variables → Actions**. Each scheduled run rotates `SESSDATA` and `REFRESH_TOKEN` and writes the new pair back with `secrets.PAT`, so the secrets stay valid. `PAT` must belong to a user with **Secrets: write** on the repository; without it the rotated cookie is used for that run only and the next run falls back to the stale secret. If `REFRESH_TOKEN` is missing, the run still works but only re-validates the existing cookie, so the login eventually expires — rerun the script to recover.
+
 <a id="4-actions修改定时任务的执行时间"></a>
 ## 4. How do I change the scheduled run time?
 

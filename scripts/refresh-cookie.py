@@ -19,19 +19,24 @@ Standard library only.
 import base64
 import hashlib
 import json
+import os
 import re
 import sys
 import time
 import urllib.parse
-import urllib.request
-from http.cookies import SimpleCookie
+
+# Sibling module; no package install needed.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from bilibili_cookie import (  # noqa: E402
+    UA,
+    dump_cookie,
+    get_ci,
+    merge_set_cookie,
+    parse_cookie,
+    request,
+)
 
 LOG = sys.stderr
-
-UA = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0"
-)
 
 # Published in the BiliBili web bundle; used to build correspondPath.
 PUBKEY_B64 = (
@@ -41,80 +46,10 @@ PUBKEY_B64 = (
     "JNrRuoEUXpabUzGB8QIDAQAB"
 )
 
-# Set-Cookie attributes that must never be treated as cookie fields.
-ATTRS = {
-    "domain",
-    "path",
-    "expires",
-    "max-age",
-    "httponly",
-    "secure",
-    "samesite",
-    "partitioned",
-    "priority",
-}
-
 
 def log(msg):
     LOG.write(msg + "\n")
     LOG.flush()
-
-
-# --- cookie handling -------------------------------------------------------
-
-
-def parse_cookie(raw):
-    """Parse a "a=1; b=2" cookie header into an ordered dict of raw values."""
-    cookie = {}
-    for item in raw.split(";"):
-        item = item.strip()
-        if not item or "=" not in item:
-            continue
-        key, value = item.split("=", 1)
-        key = key.strip()
-        if key:
-            cookie[key] = value.strip()
-    return cookie
-
-
-def dump_cookie(cookie):
-    return "; ".join("%s=%s" % (k, v) for k, v in cookie.items())
-
-
-def get_ci(cookie, name):
-    """Case-insensitive lookup; BiliBili mixes buvid3/Buvid3."""
-    for key, value in cookie.items():
-        if key.lower() == name.lower():
-            return value
-    return None
-
-
-def set_ci(cookie, name, value):
-    """Write through the existing key so the header keeps its original case."""
-    for key in cookie:
-        if key.lower() == name.lower():
-            cookie[key] = value
-            return
-    cookie[name] = value
-
-
-def merge_set_cookie(cookie, raw_headers):
-    """Apply Set-Cookie lines onto the cookie dict; return the changed names."""
-    updated = []
-    for raw in raw_headers:
-        one = SimpleCookie()
-        try:
-            one.load(raw)
-        except Exception as exc:
-            log("  [skip] Set-Cookie 解析失败: %s" % exc)
-            continue
-        for key, morsel in one.items():
-            if key.lower() in ATTRS or morsel.value == "":
-                continue
-            if get_ci(cookie, key) != morsel.value:
-                updated.append(key)
-            set_ci(cookie, key, morsel.value)
-    return updated
 
 
 # --- RSA-OAEP(SHA-256), no third-party crypto ---------------------------------
@@ -182,20 +117,6 @@ def correspond_path(timestamp_ms):
 # --- BiliBili API -------------------------------------------------------------
 
 
-def request(url, cookie_str, form=None):
-    data = urllib.parse.urlencode(form).encode() if form is not None else None
-    req = urllib.request.Request(url, data=data, method="POST" if data is not None else "GET")
-    req.add_header("Cookie", cookie_str)
-    req.add_header("User-Agent", UA)
-    req.add_header("Referer", "https://www.bilibili.com")
-    if data is not None:
-        req.add_header("Content-Type", "application/x-www-form-urlencoded")
-    with urllib.request.urlopen(req, timeout=20) as resp:
-        raw = resp.read().decode("utf-8", "replace")
-        headers = resp.headers.get_all("Set-Cookie") or []
-    return raw, headers
-
-
 def check_login(cookie):
     try:
         raw, _ = request("https://api.bilibili.com/x/web-interface/nav", dump_cookie(cookie))
@@ -250,7 +171,7 @@ def refresh(cookie, old_token):
             "cookie/refresh 失败: code=%s msg=%s" % (data.get("code"), data.get("message"))
         )
 
-    updated = merge_set_cookie(cookie, headers)
+    updated = merge_set_cookie(cookie, headers, log)
     log("  [ok] Cookie 已刷新，更新字段: %s" % (", ".join(updated) or "无"))
     return (data.get("data") or {}).get("refresh_token") or old_token
 
