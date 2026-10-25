@@ -43,29 +43,29 @@ Issues are for bugs, suggestions, design questions, and feature requests. Contri
 
 Forks may not have scheduled workflows enabled immediately; check your fork's **Actions** tab and enable workflows if prompted. A repository activity such as a commit can also affect when schedules start running. GitHub schedules can be delayed, and schedules in inactive public repositories may be disabled by GitHub.
 
-**This repository does not currently contain the old `bilibili-daily-task.yml` workflow.** Its former daily schedule and the instructions in the next section describe older forks only. The included [fork-sync workflow](../.github/workflows/sync-fork-with-upstream.yml) runs on Monday, Wednesday, and Friday (or on manual dispatch), not every day. For Web deployments, configure task timing through the [Web cron settings](configuration.md#394-cron-settings); these are not GitHub Actions schedules.
+Upstream removed its `bilibili-daily-task.yml`; **this fork restores it** as [`.github/workflows/bilibili-daily-task.yml`](../.github/workflows/bilibili-daily-task.yml), running on a daily schedule plus manual dispatch. For Web deployments, configure task timing through the [Web cron settings](configuration.md#394-cron-settings); these are not GitHub Actions schedules.
 
 <a id="4-actions修改定时任务的执行时间"></a>
 ## 4. How do I change the scheduled run time?
 
-For an older fork that still has `.github/workflows/bilibili-daily-task.yml`, the former daily run was scheduled at `16:00 UTC` (midnight in UTC+8):
+The daily run is scheduled at `16:00 UTC` (midnight in UTC+8):
 
 ```yaml
 schedule:
   - cron: '0 16 * * *'
 ```
 
-That file is **absent from this repository**. Do not expect a daily Actions task by editing the current [fork-sync workflow](../.github/workflows/sync-fork-with-upstream.yml): it syncs code rather than running Bilibili tasks. For Web task schedules, see [Cron settings](configuration.md#394-cron-settings).
+That file ships in this fork as [`.github/workflows/bilibili-daily-task.yml`](../.github/workflows/bilibili-daily-task.yml). Do not expect a daily Actions task by editing the [fork-sync workflow](../.github/workflows/sync-fork-with-upstream.yml): it syncs code rather than running Bilibili tasks. For Web task schedules, see [Cron settings](configuration.md#394-cron-settings).
 
 <a id="41-方法一修改yaml文件中的cron表达式"></a>
 ### 4.1. Edit the workflow cron expression
 
-If your fork has the legacy daily-task workflow, change its `schedule` cron expression and commit the change. GitHub Actions cron uses UTC and five fields. Editing workflow files can create conflicts when syncing upstream changes, so the wait-timer approach below was offered for legacy forks.
+Change the `schedule` cron expression in [`.github/workflows/bilibili-daily-task.yml`](../.github/workflows/bilibili-daily-task.yml) and commit the change. GitHub Actions cron uses UTC and five fields. Editing workflow files can create conflicts when syncing upstream changes, so the wait-timer approach below was offered for legacy forks.
 
 <a id="42-方法二添加-github-environments-并设置延时"></a>
 ### 4.2. Use a GitHub Environment wait timer
 
-In older versions (from v1.1.3) the daily-task workflow used a `Production` environment. After the workflow created it, you could open **Settings → Environments → Production** (or create it), enable **Wait timer**, and enter a delay in minutes. This only delays a job **if its workflow references that environment**; the current repository has no daily-task workflow to delay.
+In older versions (from v1.1.3) the daily-task workflow used a `Production` environment. After the workflow created it, you could open **Settings → Environments → Production** (or create it), enable **Wait timer**, and enter a delay in minutes. This only delays a job **if its workflow references that environment**; the daily-task workflow in this fork references no environment, so a wait timer has nothing to delay.
 
 ![Environment list](imgs/github-env-list.png)
 
@@ -164,7 +164,7 @@ Follow Microsoft's [.NET installation instructions](https://learn.microsoft.com/
 <a id="7-如何关停actions运行"></a>
 ## 7. How do I stop scheduled runs?
 
-You can stop application tasks without deleting a fork, or disable the corresponding workflow entirely. Deleting a fork removes settings and secrets and is not recommended simply to stop scheduled execution. Note again that this repository does **not** include the old daily-task Actions workflow; the steps below apply if your fork still has one.
+You can stop application tasks without deleting a fork, or disable the corresponding workflow entirely. Deleting a fork removes settings and secrets and is not recommended simply to stop scheduled execution. The daily-task workflow is included in this fork; the steps below apply to it.
 
 <a id="71-方法一使用配置关停每日任务"></a>
 ### 7.1. Skip tasks in the application
@@ -178,4 +178,4 @@ In your fork's **Actions** tab, select the workflow to stop, open the three-dot 
 
 ![Disable a workflow](imgs/github-actions-close.png)
 
-That workflow no longer starts on its schedule. The same procedure can be used to disable the currently included fork-sync workflow if you want to stop automatic code synchronization.
+That workflow no longer starts on its schedule. The same procedure disables the daily-task workflow, the only scheduled workflow in this fork.

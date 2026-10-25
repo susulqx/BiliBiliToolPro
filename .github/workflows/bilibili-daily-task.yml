@@ -1,0 +1,88 @@
+# BiliBili daily tasks.
+#
+# Flow: refresh cookie -> sync secret -> run daily tasks.
+# Upstream deleted this workflow; this fork keeps its own copy, and it is the
+# only workflow here that still runs on a schedule.
+
+name: bilibili-daily-task
+
+on:
+  workflow_dispatch:
+  # UTC 16:00 = 00:00 Asia/Shanghai
+  schedule:
+    - cron: "0 16 * * *"
+
+concurrency:
+  group: bilibili-daily-task
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_VERSION: "10.0.x"
+  TZ: "Asia/Shanghai"
+
+jobs:
+  refresh-and-run:
+    name: Refresh cookie and run daily tasks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # The refresh step rewrites the repository secret, which needs a token with
+    # Secrets: write. GITHUB_TOKEN cannot do that, so the PAT secret is required.
+    env:
+      GH_TOKEN: ${{ secrets.PAT }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      # Every run rotates SESSDATA and refresh_token. Stale secrets make the next
+      # run fail, so the rotated pair is written back before the tasks run, and the
+      # previous token is only invalidated once the new one is persisted.
+      - name: Refresh cookie
+        id: refresh
+        env:
+          COOKIE: ${{ secrets.COOKIESTR }}
+          REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          python3 ./scripts/refresh-cookie.py "$COOKIE" "$REFRESH_TOKEN" > /tmp/refresh.json
+          cookie=$(python3 -c "import json;print(json.load(open('/tmp/refresh.json'))['cookie'])")
+          token=$(python3 -c "import json;print(json.load(open('/tmp/refresh.json'))['refresh_token'])")
+          prev=$(python3 -c "import json;print(json.load(open('/tmp/refresh.json'))['prev_refresh_token'])")
+          if [ -z "$cookie" ]; then
+            echo "::error::refresh-cookie.py produced no cookie"
+            exit 1
+          fi
+          printf '%s' "$cookie" > /tmp/refreshed_cookie
+          if [ -n "$token" ]; then
+            gh secret set COOKIESTR --repo "$REPO" --body "$cookie"
+            gh secret set REFRESH_TOKEN --repo "$REPO" --body "$token"
+            echo "::notice::Cookie 与 refresh_token 已写回 Secrets"
+          fi
+          if [ -n "$prev" ]; then
+            python3 ./scripts/refresh-cookie.py --confirm "$cookie" "$prev" \
+              || echo "::warning::旧 refresh_token 确认作废失败，可忽略"
+          fi
+
+      - name: Run daily tasks
+        run: |
+          export Ray_BiliBiliCookies__1="$(cat /tmp/refreshed_cookie)"
+          cd ./src/Ray.BiliBiliTool.Console
+          dotnet run --configuration Release --runTasks="Daily&Manga"
+        env:
+          Ray_Security__RandomSleepMaxMin: 0
+          Ray_DailyTaskConfig__SaveCoinsWhenLv6: true
+          Ray_DailyTaskConfig__SupportUpIds: " "
+          Ray_Serilog__WriteTo__0__Args__restrictedToMinimumLevel: Information
+          # Telegram push
+          Ray_Serilog__WriteTo__3__Args__botToken: ${{ secrets.TG_BOT_TOKEN }}
+          Ray_Serilog__WriteTo__3__Args__chatId: "7791144119"
