@@ -77,7 +77,7 @@ jobs:
         run: |
           export Ray_BiliBiliCookies__1="$(cat /tmp/refreshed_cookie)"
           cd ./src/Ray.BiliBiliTool.Console
-          dotnet run --configuration Release --runTasks="Daily&Manga"
+          dotnet run --configuration Release --runTasks="Daily&Manga&VipBigPoint"
         env:
           Ray_Security__RandomSleepMaxMin: 0
           Ray_DailyTaskConfig__SaveCoinsWhenLv6: true
